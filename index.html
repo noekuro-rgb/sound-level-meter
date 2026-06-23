@@ -60,9 +60,14 @@
   </div>
 
   <div class="cal">
-    <label>校正オフセット（RION の値に合わせて調整）</label>
+    <label>① 基準計（RION）の値に合わせて校正</label>
     <div class="row">
-      <input type="number" id="calInput" value="0" step="0.1">
+      <input type="number" id="rionInput" placeholder="RIONの表示値" step="0.1">
+      <button id="calBtn" style="flex:0 0 auto; padding:10px 14px; background:#1f6feb">この値に合わせる</button>
+    </div>
+    <label style="margin-top:12px">校正オフセット（手動でも調整可・自動保存）</label>
+    <div class="row">
+      <input type="number" id="calInput" value="100" step="0.1">
       <span style="color:#8b949e">dB</span>
     </div>
     <label style="margin-top:12px">時間重み</label>
@@ -84,7 +89,10 @@ let audioCtx, analyser, micStream, rafId;
 let running = false;
 let tau = 0.125;            // 時間重み定数 (Fast=0.125s, Slow=1.0s)
 let smoothMS = 0;           // 指数平滑した平均二乗値
-let calOffset = 0;          // 校正オフセット(dB)
+let calOffset = 100;        // 校正オフセット(dB)。dBFS(負値)を 0〜120 帯に持ち上げる
+let lastRawDb = -Infinity;  // 校正前の瞬時 dBFS（RION合わせ用）
+
+const clamp = v => Math.max(0, Math.min(120, v));
 
 // Leq 用の積算
 let sumMS = 0, nMS = 0, lmax = -Infinity, lmin = Infinity;
@@ -93,7 +101,31 @@ let lastT = 0;
 const elLevel = $('level'), elLeq = $('leq'), elMax = $('lmax'),
       elMin = $('lmin'), elBar = $('barFill'), elMode = $('modeLabel');
 
-$('calInput').addEventListener('input', e => { calOffset = parseFloat(e.target.value) || 0; });
+// 起動時に保存済みオフセットを復元
+{
+  const saved = parseFloat(localStorage.getItem('calOffset'));
+  if (isFinite(saved)) calOffset = saved;
+  $('calInput').value = calOffset;
+}
+
+function setOffset(v) {
+  calOffset = v;
+  $('calInput').value = v.toFixed(1);
+  localStorage.setItem('calOffset', String(v));
+}
+
+$('calInput').addEventListener('input', e => {
+  const v = parseFloat(e.target.value);
+  if (isFinite(v)) { calOffset = v; localStorage.setItem('calOffset', String(v)); }
+});
+
+// RION の表示値に合わせる（offset = RION値 − 現在の生dBFS）
+$('calBtn').addEventListener('click', () => {
+  if (!running || !isFinite(lastRawDb)) { alert('先に「測定開始」して、音を出した状態で押してください。'); return; }
+  const rion = parseFloat($('rionInput').value);
+  if (!isFinite(rion)) { alert('RION の表示値を入力してください。'); return; }
+  setOffset(rion - lastRawDb);
+});
 
 $('timeSeg').addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
@@ -165,20 +197,22 @@ function loop() {
   const a = 1 - Math.exp(-dt / tau);
   smoothMS = smoothMS + a * (ms - smoothMS);
 
-  // dBFS → 校正後 dB
-  const db = 20 * Math.log10(Math.sqrt(smoothMS) + 1e-12) + calOffset;
+  // dBFS（校正前）→ 校正後 dB
+  const rawDb = 20 * Math.log10(Math.sqrt(smoothMS) + 1e-12);
+  lastRawDb = rawDb;
+  const db = rawDb + calOffset;
 
   if (isFinite(db)) {
-    elLevel.textContent = db.toFixed(1);
-    // 30〜100 dB を 0〜100% にマッピング
-    elBar.style.width = Math.max(0, Math.min(100, (db - 30) / 0.7)) + '%';
+    elLevel.textContent = clamp(db).toFixed(1);
+    // 0〜120 dB を 0〜100% にマッピング
+    elBar.style.width = (clamp(db) / 1.2) + '%';
 
     // 積算（瞬時の ms を使用：Leq は時間平均）
     sumMS += ms; nMS++;
     const leq = 20 * Math.log10(Math.sqrt(sumMS / nMS) + 1e-12) + calOffset;
-    elLeq.textContent = leq.toFixed(1);
-    if (db > lmax) { lmax = db; elMax.textContent = db.toFixed(1); }
-    if (db < lmin) { lmin = db; elMin.textContent = db.toFixed(1); }
+    elLeq.textContent = clamp(leq).toFixed(1);
+    if (db > lmax) { lmax = db; elMax.textContent = clamp(db).toFixed(1); }
+    if (db < lmin) { lmin = db; elMin.textContent = clamp(db).toFixed(1); }
   }
   rafId = requestAnimationFrame(loop);
 }
