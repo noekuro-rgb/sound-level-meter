@@ -1,0 +1,185 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>簡易騒音計</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0; font-family: -apple-system, system-ui, sans-serif;
+    background: #0d1117; color: #e6edf3;
+    display: flex; flex-direction: column; min-height: 100vh;
+    padding: env(safe-area-inset-top) 16px env(safe-area-inset-bottom);
+  }
+  h1 { font-size: 15px; font-weight: 600; text-align: center; color: #8b949e; margin: 14px 0 4px; }
+  .main {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 4px;
+  }
+  .level { font-size: 88px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+  .unit { font-size: 22px; color: #8b949e; margin-left: 6px; }
+  .weighting { font-size: 13px; color: #8b949e; letter-spacing: .05em; }
+  .bar { width: 100%; max-width: 420px; height: 12px; background: #21262d; border-radius: 6px; overflow: hidden; margin: 18px 0; }
+  .bar > div { height: 100%; width: 0%; background: linear-gradient(90deg,#3fb950,#d29922,#f85149); transition: width .08s linear; }
+  .stats { display: flex; gap: 10px; width: 100%; max-width: 420px; }
+  .stat { flex: 1; background: #161b22; border: 1px solid #21262d; border-radius: 10px; padding: 10px; text-align: center; }
+  .stat .k { font-size: 11px; color: #8b949e; }
+  .stat .v { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .controls { display: flex; gap: 10px; width: 100%; max-width: 420px; margin: 16px 0; }
+  button {
+    flex: 1; padding: 14px; font-size: 16px; font-weight: 600;
+    border: none; border-radius: 12px; color: #fff; background: #238636;
+  }
+  button.stop { background: #6e7681; }
+  button:active { opacity: .8; }
+  .cal { width: 100%; max-width: 420px; background: #161b22; border: 1px solid #21262d; border-radius: 10px; padding: 12px; margin-bottom: 12px; }
+  .cal label { font-size: 12px; color: #8b949e; display: block; margin-bottom: 6px; }
+  .cal .row { display: flex; align-items: center; gap: 8px; }
+  .cal input[type=number] { flex: 1; background: #0d1117; border: 1px solid #30363d; color: #e6edf3; border-radius: 8px; padding: 10px; font-size: 16px; }
+  .seg { display: flex; gap: 6px; }
+  .seg button { padding: 8px; font-size: 13px; background: #21262d; }
+  .seg button.on { background: #1f6feb; }
+  .note { font-size: 11px; color: #6e7681; text-align: center; max-width: 420px; margin: 0 auto 12px; line-height: 1.5; }
+</style>
+
+<h1>簡易騒音計 — Phase 1 プロトタイプ</h1>
+
+<div class="main">
+  <div class="weighting" id="modeLabel">Z特性（平坦） / Fast</div>
+  <div><span class="level" id="level">--</span><span class="unit">dB</span></div>
+  <div class="bar"><div id="barFill"></div></div>
+
+  <div class="stats">
+    <div class="stat"><div class="k">Leq</div><div class="v" id="leq">--</div></div>
+    <div class="stat"><div class="k">Lmax</div><div class="v" id="lmax">--</div></div>
+    <div class="stat"><div class="k">Lmin</div><div class="v" id="lmin">--</div></div>
+  </div>
+
+  <div class="controls">
+    <button id="startBtn">測定開始</button>
+    <button id="resetBtn" class="stop">リセット</button>
+  </div>
+
+  <div class="cal">
+    <label>校正オフセット（RION の値に合わせて調整）</label>
+    <div class="row">
+      <input type="number" id="calInput" value="0" step="0.1">
+      <span style="color:#8b949e">dB</span>
+    </div>
+    <label style="margin-top:12px">時間重み</label>
+    <div class="seg" id="timeSeg">
+      <button data-tau="0.125" class="on">Fast</button>
+      <button data-tau="1.0">Slow</button>
+    </div>
+  </div>
+
+  <div class="note">
+    ※ 現在は Z特性（平坦）のみ。iPhone マイクは高音圧で飽和し、AGC の影響も受けます。<br>
+    RION と同時測定し、校正オフセットで絶対値を合わせてください。
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let audioCtx, analyser, micStream, rafId;
+let running = false;
+let tau = 0.125;            // 時間重み定数 (Fast=0.125s, Slow=1.0s)
+let smoothMS = 0;           // 指数平滑した平均二乗値
+let calOffset = 0;          // 校正オフセット(dB)
+
+// Leq 用の積算
+let sumMS = 0, nMS = 0, lmax = -Infinity, lmin = Infinity;
+let lastT = 0;
+
+const elLevel = $('level'), elLeq = $('leq'), elMax = $('lmax'),
+      elMin = $('lmin'), elBar = $('barFill'), elMode = $('modeLabel');
+
+$('calInput').addEventListener('input', e => { calOffset = parseFloat(e.target.value) || 0; });
+
+$('timeSeg').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  [...e.currentTarget.children].forEach(x => x.classList.remove('on'));
+  b.classList.add('on');
+  tau = parseFloat(b.dataset.tau);
+  elMode.textContent = `Z特性（平坦） / ${tau < 0.5 ? 'Fast' : 'Slow'}`;
+});
+
+$('startBtn').addEventListener('click', () => running ? stop() : start());
+$('resetBtn').addEventListener('click', resetStats);
+
+async function start() {
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: false,
+        autoGainControl: false,   // ← AGC を切りたい（iOS は無視する場合あり）
+        noiseSuppression: false,
+      }
+    });
+  } catch (err) {
+    alert('マイクを使用できません: ' + err.message);
+    return;
+  }
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  await audioCtx.resume();
+  const src = audioCtx.createMediaStreamSource(micStream);
+  analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 2048;
+  src.connect(analyser);
+
+  running = true;
+  $('startBtn').textContent = '停止';
+  $('startBtn').classList.add('stop');
+  resetStats();
+  lastT = performance.now();
+  loop();
+}
+
+function stop() {
+  running = false;
+  cancelAnimationFrame(rafId);
+  if (micStream) micStream.getTracks().forEach(t => t.stop());
+  if (audioCtx) audioCtx.close();
+  $('startBtn').textContent = '測定開始';
+  $('startBtn').classList.remove('stop');
+}
+
+function resetStats() {
+  sumMS = 0; nMS = 0; lmax = -Infinity; lmin = Infinity; smoothMS = 0;
+  elLeq.textContent = elMax.textContent = elMin.textContent = '--';
+}
+
+const buf = new Float32Array(2048);
+function loop() {
+  if (!running) return;
+  analyser.getFloatTimeDomainData(buf);
+
+  // ブロックの平均二乗値
+  let ms = 0;
+  for (let i = 0; i < buf.length; i++) ms += buf[i] * buf[i];
+  ms /= buf.length;
+
+  // 時間重み付け（指数平滑）
+  const now = performance.now();
+  const dt = Math.min((now - lastT) / 1000, 0.1);
+  lastT = now;
+  const a = 1 - Math.exp(-dt / tau);
+  smoothMS = smoothMS + a * (ms - smoothMS);
+
+  // dBFS → 校正後 dB
+  const db = 20 * Math.log10(Math.sqrt(smoothMS) + 1e-12) + calOffset;
+
+  if (isFinite(db)) {
+    elLevel.textContent = db.toFixed(1);
+    // 30〜100 dB を 0〜100% にマッピング
+    elBar.style.width = Math.max(0, Math.min(100, (db - 30) / 0.7)) + '%';
+
+    // 積算（瞬時の ms を使用：Leq は時間平均）
+    sumMS += ms; nMS++;
+    const leq = 20 * Math.log10(Math.sqrt(sumMS / nMS) + 1e-12) + calOffset;
+    elLeq.textContent = leq.toFixed(1);
+    if (db > lmax) { lmax = db; elMax.textContent = db.toFixed(1); }
+    if (db < lmin) { lmin = db; elMin.textContent = db.toFixed(1); }
+  }
+  rafId = requestAnimationFrame(loop);
+}
+</script>
