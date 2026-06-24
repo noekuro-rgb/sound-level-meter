@@ -32,6 +32,11 @@
   .ln { background: #161b22; border: 1px solid #21262d; border-radius: 8px; padding: 6px 2px; text-align: center; }
   .ln .k { font-size: 9px; color: #8b949e; }
   .ln .v { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .spec { margin-top: 12px; background: #161b22; border: 1px solid #21262d; border-radius: 10px; padding: 10px; }
+  .spec-head { display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: #8b949e; margin-bottom: 8px; }
+  .spec-head .seg { width: auto; }
+  .spec-head .seg button { flex: 0 0 auto; padding: 6px 10px; font-size: 12px; }
+  #specCanvas { width: 100%; height: 170px; display: block; }
   .meta { display: flex; justify-content: space-between; font-size: 11px; color: #8b949e; margin: 10px 2px 0; }
   .controls { display: flex; gap: 10px; margin: 12px 0; }
   .controls button { flex: 1; padding: 14px; font-size: 16px; font-weight: 700; border: none; border-radius: 12px; color: #fff; background: #238636; }
@@ -88,6 +93,17 @@
   <div class="ln"><div class="k">L50</div><div class="v" id="l50">--</div></div>
   <div class="ln"><div class="k">L90</div><div class="v" id="l90">--</div></div>
   <div class="ln"><div class="k">L95</div><div class="v" id="l95">--</div></div>
+</div>
+
+<div class="spec">
+  <div class="spec-head">
+    <span>オクターブ スペクトル（Z/平坦・近似）</span>
+    <div class="seg" id="bwSeg">
+      <button data-bw="1" class="on">1/1 oct</button>
+      <button data-bw="3">1/3 oct</button>
+    </div>
+  </div>
+  <canvas id="specCanvas"></canvas>
 </div>
 
 <div class="meta">
@@ -251,6 +267,8 @@ registerProcessor('slm-processor', SLMProcessor);
 
 // ===== メインスレッド =====
 let audioCtx, micStream, node, muteGain;
+let analyser, freqData, timeData, specRAF;   // スペクトル用
+let ctx2d, cw = 0, chh = 0, bands;
 let running = false;
 let calOffset = 100;
 let weighting = 'A', timeMode = 'F';
@@ -317,6 +335,15 @@ async function start(){
   node.port.onmessage = e => onMetrics(e.data);
 
   const src = audioCtx.createMediaStreamSource(micStream);
+
+  // スペクトル用 AnalyserNode（生＝平坦信号をタップ。表示専用なので AnalyserNode で可）
+  analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 16384;
+  analyser.smoothingTimeConstant = 0.8;
+  freqData = new Float32Array(analyser.frequencyBinCount);
+  timeData = new Float32Array(analyser.fftSize);
+  src.connect(analyser);
+
   muteGain = audioCtx.createGain(); muteGain.gain.value = 0;  // 無音シンク（フィードバック防止）
   src.connect(node); node.connect(muteGain); muteGain.connect(audioCtx.destination);
 
@@ -327,13 +354,15 @@ async function start(){
   running = true; startTime = performance.now();
   $('startBtn').textContent = '停止'; $('startBtn').classList.add('running');
   resetStats();
+  setupCanvas(); drawSpectrum();
 }
 
 function stop(){
   running = false;
+  if (specRAF) cancelAnimationFrame(specRAF);
   if (micStream) micStream.getTracks().forEach(t => t.stop());
   if (audioCtx) audioCtx.close();
-  node = null;
+  node = null; analyser = null;
   $('startBtn').textContent = '測定開始'; $('startBtn').classList.remove('running');
 }
 
@@ -393,6 +422,88 @@ function onMetrics(m){
 
   // クリップ警告
   if (m.peakAbs >= 0.985) $('clipInfo').innerHTML = '<span class="warn">⚠ クリップ（過大入力）</span>';
+}
+
+// ===== オクターブ スペクトル =====
+const OCT1 = [31.5, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
+const OCT3 = [25, 31.5, 40, 50, 63, 80, 100, 125, 160, 200, 250, 315, 400, 500, 630,
+              800, 1000, 1250, 1600, 2000, 2500, 3150, 4000, 5000, 6300, 8000, 10000, 12500, 16000, 20000];
+function fmt(fc){ return fc >= 1000 ? (fc / 1000) + 'k' : '' + fc; }
+function makeBands(bw){
+  const centers = bw === 1 ? OCT1 : OCT3;
+  const ratio = bw === 1 ? Math.SQRT2 : Math.pow(2, 1 / 6);   // 帯域端＝中心×/÷ ratio
+  return centers.map(fc => ({ fc, lo: fc / ratio, hi: fc * ratio, label: fmt(fc) }));
+}
+bands = makeBands(1);
+
+$('bwSeg').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  [...e.currentTarget.children].forEach(x => x.classList.remove('on')); b.classList.add('on');
+  bands = makeBands(parseInt(b.dataset.bw, 10));
+});
+
+function setupCanvas(){
+  const c = $('specCanvas');
+  const dpr = window.devicePixelRatio || 1;
+  cw = c.clientWidth; chh = 170;
+  c.width = cw * dpr; c.height = chh * dpr;
+  ctx2d = c.getContext('2d');
+  ctx2d.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+window.addEventListener('resize', () => { if (running) setupCanvas(); });
+
+const DBMIN = 20, DBMAX = 110, AXIS = 16;   // 下16pxはラベル域
+function drawSpectrum(){
+  if (!running || !analyser) return;
+  analyser.getFloatFrequencyData(freqData);     // 各ビン dB
+  analyser.getFloatTimeDomainData(timeData);
+
+  // 広帯域 RMS（時間領域・平坦）
+  let ms = 0; for (let i = 0; i < timeData.length; i++) ms += timeData[i] * timeData[i];
+  ms /= timeData.length;
+  const rawBB = 10 * Math.log10(ms + 1e-20);
+
+  // FFT 全パワーとスケール（バンド総和を広帯域に一致させる）
+  let Ptot = 0;
+  const pw = new Float64Array(freqData.length);
+  for (let i = 0; i < freqData.length; i++){ const p = Math.pow(10, freqData[i] / 10); pw[i] = p; Ptot += p; }
+  const scale = rawBB - 10 * Math.log10(Ptot + 1e-20);
+  const binHz = audioCtx.sampleRate / analyser.fftSize;
+
+  const levels = bands.map(b => {
+    const i0 = Math.max(1, Math.floor(b.lo / binHz));
+    const i1 = Math.min(pw.length - 1, Math.ceil(b.hi / binHz));
+    let P = 0; for (let i = i0; i <= i1; i++) P += pw[i];
+    return P > 0 ? 10 * Math.log10(P) + scale + calOffset : null;
+  });
+  drawBars(levels);
+  specRAF = requestAnimationFrame(drawSpectrum);
+}
+
+function drawBars(levels){
+  if (!ctx2d) return;
+  const plotH = chh - AXIS;
+  ctx2d.clearRect(0, 0, cw, chh);
+  // Y グリッド
+  ctx2d.font = '9px -apple-system, sans-serif';
+  for (const g of [40, 60, 80, 100]){
+    const y = plotH - (g - DBMIN) / (DBMAX - DBMIN) * plotH;
+    ctx2d.strokeStyle = '#21262d'; ctx2d.beginPath(); ctx2d.moveTo(0, y); ctx2d.lineTo(cw, y); ctx2d.stroke();
+    ctx2d.fillStyle = '#6e7681'; ctx2d.fillText(g, 1, y - 1);
+  }
+  const n = bands.length, bw = cw / n;
+  for (let i = 0; i < n; i++){
+    const L = levels[i]; if (L == null) continue;
+    const f = Math.max(0, Math.min(1, (L - DBMIN) / (DBMAX - DBMIN)));
+    const h = f * plotH;
+    ctx2d.fillStyle = L >= 85 ? '#f85149' : L >= 70 ? '#d29922' : '#3fb950';
+    ctx2d.fillRect(i * bw + 1, plotH - h, Math.max(1, bw - 2), h);
+  }
+  // X ラベル（1/1中心のみ）
+  ctx2d.fillStyle = '#8b949e';
+  for (let i = 0; i < n; i++){
+    if (OCT1.indexOf(bands[i].fc) >= 0) ctx2d.fillText(bands[i].label, i * bw + 1, chh - 4);
+  }
 }
 
 updateLpLabel();
