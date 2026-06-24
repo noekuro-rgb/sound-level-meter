@@ -1,19 +1,21 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>簡易騒音計 (NA-28 機能パリティ版)</title>
+<title>簡易騒音計</title>
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { margin: 0; height: 100%; }
-  body {
-    font-family: -apple-system, system-ui, sans-serif; background: #0d1117; color: #e6edf3;
-    overflow: hidden;
-  }
+  body { font-family: -apple-system, system-ui, sans-serif; background: #0d1117; color: #e6edf3; overflow: hidden; }
   .app {
     height: 100vh; height: 100dvh; max-width: 560px; margin: 0 auto;
     display: flex; flex-direction: column; gap: 6px; overflow: hidden;
     padding: calc(env(safe-area-inset-top) + 6px) 12px calc(env(safe-area-inset-bottom) + 8px);
   }
+  /* トップタブ */
+  .tabs { display: flex; gap: 5px; background: #161b22; padding: 4px; border-radius: 10px; }
+  .tabs button { flex: 1; padding: 9px 0; font-size: 14px; font-weight: 700; border: none; border-radius: 7px; background: transparent; color: #8b949e; }
+  .tabs button.on { background: #1f6feb; color: #fff; }
+
   .seg { display: flex; gap: 5px; }
   .seg button { flex: 1; padding: 8px 0; font-size: 13px; font-weight: 600; border: none; border-radius: 8px; background: #21262d; color: #e6edf3; }
   .seg button.on { background: #1f6feb; }
@@ -31,12 +33,18 @@
   .ministats .k { font-size: 9px; color: #8b949e; }
   .ministats .v { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
 
-  .graphhead { display: flex; align-items: center; gap: 10px; }
+  .graphhead { display: flex; align-items: center; gap: 10px; min-height: 34px; }
   .graphhead .seg { flex: 1; }
   .graphhead .status { font-size: 11px; color: #8b949e; white-space: nowrap; font-variant-numeric: tabular-nums; }
   .graphhead .warn { color: #d29922; }
+  .specctl { display: flex; gap: 6px; flex: 1; }
+  .specctl button { flex: 1; padding: 8px 0; font-size: 12px; font-weight: 600; border: none; border-radius: 8px; background: #21262d; color: #e6edf3; }
+  .specctl button.on { background: #d29922; color: #1a1a1a; }
 
   #specCanvas { flex: 1; width: 100%; min-height: 0; display: block; background: #0a0d12; border: 1px solid #21262d; border-radius: 10px; }
+
+  .cursor-out { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #58a6ff; font-variant-numeric: tabular-nums; min-height: 22px; }
+  .cursor-out .clr { padding: 3px 10px; font-size: 11px; border: none; border-radius: 6px; background: #21262d; color: #8b949e; }
 
   .controls { display: flex; gap: 8px; }
   .controls button { padding: 13px; font-size: 15px; font-weight: 700; border: none; border-radius: 11px; color: #fff; }
@@ -44,6 +52,10 @@
   .controls #startBtn.running { background: #da3633; }
   .controls #resetBtn { flex: 1; background: #6e7681; }
   .controls #settingsBtn { flex: 1; background: #30363d; }
+
+  /* ビュー別の表示切替 */
+  .app.view-slm .spec-only { display: none; }
+  .app.view-spec .slm-only { display: none; }
 
   /* 設定シート */
   .backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.5); opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 9; }
@@ -65,46 +77,71 @@
   .ln .k { font-size: 9px; color: #8b949e; }
   .ln .v { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
   .sheet .meta { display: flex; justify-content: space-between; font-size: 11px; color: #8b949e; margin: 8px 0; }
+  .sheet select { background: #0d1117; border: 1px solid #30363d; color: #e6edf3; border-radius: 8px; padding: 9px; font-size: 15px; }
+  .fld { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 9px 0; }
+  .fld > label { font-size: 12px; color: #8b949e; flex: 0 0 auto; }
+  .fld input[type=range] { flex: 1; }
+  .fld .seg { width: auto; flex: 0 0 auto; }
+  .fld .seg button { flex: 0 0 auto; padding: 6px 9px; font-size: 12px; }
+  .dbrange { display: flex; align-items: center; gap: 6px; }
+  .dbrange input { width: 60px; flex: 0 0 auto; padding: 8px; }
+  .ext { color: #6e7681; font-size: 10px; text-align: right; }
   .note { font-size: 10px; color: #6e7681; line-height: 1.6; }
   .note .warn { color: #d29922; }
   .sheet .grab { width: 36px; height: 4px; background: #30363d; border-radius: 2px; margin: 0 auto 10px; }
 </style>
 
-<div class="app">
-  <div class="selectors">
-    <div>
-      <div class="lbl">周波数重み</div>
-      <div class="seg" id="freqSeg">
-        <button data-w="A" class="on">A</button><button data-w="C">C</button><button data-w="Z">Z</button>
-      </div>
-    </div>
-    <div>
-      <div class="lbl">時間重み</div>
-      <div class="seg" id="timeSeg">
-        <button data-t="F" class="on">Fast</button><button data-t="S">Slow</button><button data-t="I">Imp</button>
-      </div>
-    </div>
+<div class="app view-slm" id="app">
+  <div class="tabs" id="tabs">
+    <button data-v="slm" class="on">騒音計</button>
+    <button data-v="spec">スペクトル</button>
   </div>
 
-  <div class="readout">
-    <div class="lp-label" id="lpLabel">L<sub>AF</sub></div>
-    <div class="lp"><span class="level" id="level">--.-</span><span class="unit">dB</span></div>
-    <div class="ministats">
-      <div class="s"><div class="k">Leq</div><div class="v" id="leq">--.-</div></div>
-      <div class="s"><div class="k">Lmax</div><div class="v" id="lmax">--.-</div></div>
-      <div class="s"><div class="k">Lmin</div><div class="v" id="lmin">--.-</div></div>
-      <div class="s"><div class="k">L<sub>peak</sub></div><div class="v" id="peak">--.-</div></div>
+  <div class="slm-only">
+    <div class="selectors">
+      <div>
+        <div class="lbl">周波数重み</div>
+        <div class="seg" id="freqSeg">
+          <button data-w="A" class="on">A</button><button data-w="C">C</button><button data-w="Z">Z</button>
+        </div>
+      </div>
+      <div>
+        <div class="lbl">時間重み</div>
+        <div class="seg" id="timeSeg">
+          <button data-t="F" class="on">Fast</button><button data-t="S">Slow</button><button data-t="I">Imp</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="readout">
+      <div class="lp-label" id="lpLabel">L<sub>AF</sub></div>
+      <div class="lp"><span class="level" id="level">--.-</span><span class="unit">dB</span></div>
+      <div class="ministats">
+        <div class="s"><div class="k">Leq</div><div class="v" id="leq">--.-</div></div>
+        <div class="s"><div class="k">Lmax</div><div class="v" id="lmax">--.-</div></div>
+        <div class="s"><div class="k">Lmin</div><div class="v" id="lmin">--.-</div></div>
+        <div class="s"><div class="k">L<sub>peak</sub></div><div class="v" id="peak">--.-</div></div>
+      </div>
     </div>
   </div>
 
   <div class="graphhead">
-    <div class="seg" id="modeSeg">
-      <button data-bw="1" class="on">1/1 oct</button><button data-bw="3">1/3 oct</button><button data-bw="24">連続</button>
+    <div class="seg slm-only" id="octSeg">
+      <button data-bw="1" class="on">1/1 oct</button><button data-bw="3">1/3 oct</button>
+    </div>
+    <div class="specctl spec-only">
+      <button id="peakBtn">ピーク保持</button>
+      <button id="peakResetBtn">ピーク消去</button>
     </div>
     <div class="status"><span id="elapsed">0:00</span> <span id="clipInfo"></span></div>
   </div>
 
   <canvas id="specCanvas"></canvas>
+
+  <div class="cursor-out spec-only" id="cursorRow">
+    <span id="cursorOut">グラフをタップで周波数/レベル表示</span>
+    <button class="clr" id="cursorClr">消去</button>
+  </div>
 
   <div class="controls">
     <button id="startBtn">測定開始</button>
@@ -116,9 +153,9 @@
 <div class="backdrop" id="backdrop"></div>
 <div class="sheet" id="sheet">
   <div class="grab"></div>
-  <h2>① 基準器 NA-28 に合わせて校正（同じ音を同時測定して押す）</h2>
+  <h2>① 基準器（校正済み騒音計）に合わせて校正（同じ音を同時測定して押す）</h2>
   <div class="row">
-    <input type="number" id="rionInput" placeholder="NA-28の表示値" step="0.1">
+    <input type="number" id="refInput" placeholder="基準器の表示値" step="0.1">
     <button id="calBtn" class="calbtn">この値に合わせる</button>
   </div>
   <h2 style="margin-top:12px">校正オフセット K（手動調整可・自動保存）</h2>
@@ -141,10 +178,44 @@
     <span id="fsInfo">fs: --</span>
   </div>
 
+  <h2 style="margin-top:14px">スペクトル設定（連続モード）</h2>
+  <div class="fld">
+    <label>FFT Size</label>
+    <select id="fftSel">
+      <option>1024</option><option>2048</option><option selected>4096</option>
+      <option>8192</option><option>16384</option><option>32768</option>
+    </select>
+  </div>
+  <div class="fld">
+    <label>時間平均</label>
+    <input type="range" id="stcRange" min="0" max="0.95" step="0.05" value="0.8">
+    <span id="stcVal" style="font-size:12px;color:#8b949e;width:30px">0.80</span>
+  </div>
+  <div class="fld">
+    <label>周波数軸</label>
+    <div class="seg" id="scaleSeg">
+      <button data-s="log" class="on">Log</button><button data-s="lin">Lin</button><button data-s="mel">Mel</button><button data-s="bark">Bark</button>
+    </div>
+  </div>
+  <div class="fld">
+    <label>dB レンジ</label>
+    <div class="dbrange">
+      <input type="number" id="dbMin" value="20" step="5"><span style="color:#8b949e">–</span><input type="number" id="dbMax" value="110" step="5">
+    </div>
+  </div>
+  <div class="fld">
+    <label>平均トレース</label>
+    <div class="seg" style="width:auto;flex:0 0 auto"><button id="avgBtn" style="flex:0 0 auto;padding:6px 12px;font-size:12px">OFF</button></div>
+  </div>
+  <div class="fld">
+    <label>Window / Overlap</label>
+    <span class="ext">Blackman 固定・Overlap なし<br>（選択式は将来対応）</span>
+  </div>
+
   <div class="note">
-    Lp/Leq/Lmax/Lmin は時間重み付き、LN は慣例どおり Fast 固定で集計。Lpeak は時間重みなしの真のピーク。<br>
+    Lp/Leq/Lmax/Lmin は時間重み付き、LN は Fast 固定で集計。Lpeak は時間重みなしの真のピーク。<br>
     スペクトルは Z/平坦・定Q（分数オクターブ）。連続モードは 1/24 オクターブ平滑。<br>
-    <span class="warn">※ 校正した NA-28 に合わせ込んだ相対指示値です。iPhone マイクは約120 dB で飽和・自己雑音 約30 dBA・周波数応答が非平坦なため、Class 1 精度や全域・静室測定・各帯域の絶対精度は保証できません。業務・法的証拠には使用不可。</span>
+    <span class="warn">※ 校正した基準器に合わせ込んだ相対指示値です。スマートフォンのマイクは大音量で飽和・自己雑音が大きく・周波数応答が非平坦なため、精密級の精度や広いダイナミックレンジ・静室測定・各帯域の絶対精度は保証できません。業務・法的証拠には使用しないでください。</span>
   </div>
 </div>
 
@@ -266,12 +337,21 @@ registerProcessor('slm-processor', SLMProcessor);
 // ===== メインスレッド 状態 =====
 let audioCtx, micStream, node, muteGain;
 let analyser, freqData, timeData, specRAF;
-let ctx2d, cw = 0, chh = 0, bands;
+let ctx2d, cw = 0, chh = 0;
 let running = false;
 let calOffset = 100;
 let weighting = 'A', timeMode = 'F';
 let lmax = -Infinity, lmin = Infinity, startTime = 0, lastRawLp = -Infinity;
 const HIST_MIN = -140;
+
+// ビュー / スペクトル状態
+let view = 'slm';            // 'slm' | 'spec'
+let octFrac = 1;             // 騒音計モードのオクターブ（1 or 3）
+let peakHold = false, peakArr = null, cursorIdx = null;
+// RX準拠 スペクトル設定
+let freqScale = 'log';       // 'log' | 'lin' | 'mel' | 'bark'
+let fftSizeVal = 4096;
+let showAvg = false, avgArr = null, nAvg = 0;
 
 // 校正オフセット復元
 {
@@ -283,8 +363,8 @@ function setOffset(v){ calOffset = v; $('calInput').value = v.toFixed(1); localS
 $('calInput').addEventListener('input', e => { const v = parseFloat(e.target.value); if (isFinite(v)){ calOffset = v; localStorage.setItem('calOffset', String(v)); } });
 $('calBtn').addEventListener('click', () => {
   if (!running || !isFinite(lastRawLp)) { alert('先に「測定開始」して、音を出した状態で押してください。'); return; }
-  const r = parseFloat($('rionInput').value);
-  if (!isFinite(r)) { alert('NA-28 の表示値を入力してください。'); return; }
+  const r = parseFloat($('refInput').value);
+  if (!isFinite(r)) { alert('基準器の表示値を入力してください。'); return; }
   setOffset(r - lastRawLp);
 });
 
@@ -292,6 +372,15 @@ $('calBtn').addEventListener('click', () => {
 function openSheet(o){ $('sheet').classList.toggle('open', o); $('backdrop').classList.toggle('open', o); }
 $('settingsBtn').addEventListener('click', () => openSheet(true));
 $('backdrop').addEventListener('click', () => openSheet(false));
+
+// トップタブ（騒音計 / スペクトル）
+$('tabs').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  [...e.currentTarget.children].forEach(x => x.classList.remove('on')); b.classList.add('on');
+  view = b.dataset.v;
+  $('app').className = 'app view-' + view;
+  if (running) setupCanvas();             // キャンバスの高さが変わるので再計算
+});
 
 function updateLpLabel(){ $('lpLabel').innerHTML = 'L<sub>' + weighting + timeMode + '</sub>'; }
 $('freqSeg').addEventListener('click', e => {
@@ -306,6 +395,63 @@ $('timeSeg').addEventListener('click', e => {
   timeMode = b.dataset.t; updateLpLabel();
   const tau = timeMode === 'S' ? 1.0 : 0.125;
   if (node) node.port.postMessage({ type: 'time', tau, impulse: timeMode === 'I' });
+});
+$('octSeg').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  [...e.currentTarget.children].forEach(x => x.classList.remove('on')); b.classList.add('on');
+  octFrac = parseInt(b.dataset.bw, 10); octBands = makeBands(octFrac);
+});
+
+// スペクトル: ピーク保持 / カーソル
+$('peakBtn').addEventListener('click', e => {
+  peakHold = !peakHold;
+  e.currentTarget.classList.toggle('on', peakHold);
+  peakArr = new Array(specBands.length).fill(null);
+});
+$('peakResetBtn').addEventListener('click', () => { peakArr = new Array(specBands.length).fill(null); });
+$('cursorClr').addEventListener('click', () => { cursorIdx = null; $('cursorOut').textContent = 'グラフをタップで周波数/レベル表示'; });
+$('specCanvas').addEventListener('pointerup', e => {
+  if (view !== 'spec' || !cw) return;
+  const rect = e.currentTarget.getBoundingClientRect();
+  let x = e.clientX - rect.left; x = Math.max(0, Math.min(rect.width, x));
+  let bi = 0, best = Infinity;                 // 任意の周波数軸に対応: x座標で最近傍バンド
+  for (let i = 0; i < specBands.length; i++){
+    const d = Math.abs(xOf(specBands[i].fc) - x);
+    if (d < best){ best = d; bi = i; }
+  }
+  cursorIdx = bi;
+});
+
+// ===== RX準拠 スペクトル設定ハンドラ =====
+$('fftSel').addEventListener('change', e => {
+  fftSizeVal = parseInt(e.target.value, 10);
+  if (analyser){
+    analyser.fftSize = fftSizeVal;
+    freqData = new Float32Array(analyser.frequencyBinCount);
+    timeData = new Float32Array(analyser.fftSize);
+  }
+});
+$('stcRange').addEventListener('input', e => {
+  const v = parseFloat(e.target.value);
+  $('stcVal').textContent = v.toFixed(2);
+  if (analyser) analyser.smoothingTimeConstant = v;
+});
+$('scaleSeg').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  [...e.currentTarget.children].forEach(x => x.classList.remove('on')); b.classList.add('on');
+  freqScale = b.dataset.s;
+});
+function applyDbRange(){
+  const mn = parseFloat($('dbMin').value), mx = parseFloat($('dbMax').value);
+  if (isFinite(mn) && isFinite(mx) && mx > mn){ DBMIN = mn; DBMAX = mx; }
+}
+$('dbMin').addEventListener('input', applyDbRange);
+$('dbMax').addEventListener('input', applyDbRange);
+$('avgBtn').addEventListener('click', e => {
+  showAvg = !showAvg;
+  e.currentTarget.classList.toggle('on', showAvg);
+  e.currentTarget.textContent = showAvg ? 'ON' : 'OFF';
+  avgArr = new Float64Array(specBands.length); nAvg = 0;
 });
 
 $('startBtn').addEventListener('click', () => running ? stop() : start());
@@ -334,8 +480,8 @@ async function start(){
 
   const src = audioCtx.createMediaStreamSource(micStream);
   analyser = audioCtx.createAnalyser();
-  analyser.fftSize = 16384;
-  analyser.smoothingTimeConstant = 0.8;
+  analyser.fftSize = fftSizeVal;
+  analyser.smoothingTimeConstant = parseFloat($('stcRange').value);
   freqData = new Float32Array(analyser.frequencyBinCount);
   timeData = new Float32Array(analyser.fftSize);
   src.connect(analyser);
@@ -363,6 +509,8 @@ function stop(){
 
 function resetStats(){
   lmax = -Infinity; lmin = Infinity; startTime = performance.now(); lastRawLp = -Infinity;
+  if (peakArr) peakArr.fill(null);
+  if (avgArr) avgArr.fill(0); nAvg = 0;
   if (node) node.port.postMessage({ type: 'reset' });
   ['level','leq','sel','peak','lmax','lmin'].forEach(id => $(id).textContent = '--.-');
   ['l5','l10','l50','l90','l95'].forEach(id => $(id).textContent = '--');
@@ -413,27 +561,31 @@ const OCT3 = [20, 25, 31.5, 40, 50, 63, 80, 100, 125, 160, 200, 250, 315, 400, 5
               800, 1000, 1250, 1600, 2000, 2500, 3150, 4000, 5000, 6300, 8000, 10000, 12500, 16000, 20000];
 const XLABELS = [20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000];
 function fmt(fc){ return fc >= 1000 ? (fc / 1000) + 'k' : '' + fc; }
-function xOf(f){ return (Math.log10(f) - LGMIN) / LGSPAN * cw; }
+function fmtFreq(f){ return f >= 1000 ? (f / 1000).toFixed(f >= 10000 ? 1 : 2) + 'kHz' : f.toFixed(0) + 'Hz'; }
+const mel = f => 2595 * Math.log10(1 + f / 700);
+const bark = f => 13 * Math.atan(0.00076 * f) + 3.5 * Math.atan((f / 7500) * (f / 7500));
+function normPos(f){
+  if (freqScale === 'lin') return (f - FMIN) / (FMAX - FMIN);
+  if (freqScale === 'mel') return (mel(f) - mel(FMIN)) / (mel(FMAX) - mel(FMIN));
+  if (freqScale === 'bark') return (bark(f) - bark(FMIN)) / (bark(FMAX) - bark(FMIN));
+  return (Math.log10(f) - LGMIN) / LGSPAN;   // log
+}
+function xOf(f){ return normPos(f) * cw; }
 
 function makeBands(frac){
   let centers;
   if (frac === 1) centers = OCT1;
   else if (frac === 3) centers = OCT3;
-  else {                                   // 連続: 1/24 oct を計算生成
+  else {                                   // 連続: 1/24 oct
     centers = []; const step = Math.pow(2, 1 / 24);
     for (let f = 1000; f >= FMIN; f /= step) centers.unshift(f);
     for (let f = 1000 * step; f <= FMAX; f *= step) centers.push(f);
   }
-  const r = Math.pow(2, 1 / (2 * frac));   // 帯域端比
+  const r = Math.pow(2, 1 / (2 * frac));
   return centers.map(fc => ({ fc, lo: fc / r, hi: fc * r, label: frac === 24 ? null : fmt(fc) }));
 }
-bands = makeBands(1);
-let mode = 1;
-$('modeSeg').addEventListener('click', e => {
-  const b = e.target.closest('button'); if (!b) return;
-  [...e.currentTarget.children].forEach(x => x.classList.remove('on')); b.classList.add('on');
-  mode = parseInt(b.dataset.bw, 10); bands = makeBands(mode);
-});
+let octBands = makeBands(1);
+const specBands = makeBands(24);
 
 function setupCanvas(){
   const c = $('specCanvas');
@@ -445,13 +597,13 @@ function setupCanvas(){
 }
 window.addEventListener('resize', () => { if (running) setupCanvas(); });
 
-const DBMIN = 20, DBMAX = 110, AXIS = 14;
+let DBMIN = 20, DBMAX = 110; const AXIS = 14;
 function yOf(L){ const plotH = chh - AXIS; return plotH - Math.max(0, Math.min(1, (L - DBMIN) / (DBMAX - DBMIN))) * plotH; }
 
 function bandLevel(b, pw, binHz, scale, K){
   let i0 = Math.floor(b.lo / binHz), i1 = Math.ceil(b.hi / binHz);
   if (i0 < 1) i0 = 1;
-  if (i1 < i0) i1 = i0;                       // 低域でビンが無い時は最近傍1本
+  if (i1 < i0) i1 = i0;
   if (i1 > pw.length - 1) i1 = pw.length - 1;
   let P = 0; for (let i = i0; i <= i1; i++) P += pw[i];
   return P > 0 ? 10 * Math.log10(P) + scale + K : null;
@@ -473,15 +625,14 @@ function drawSpectrum(){
   const binHz = audioCtx.sampleRate / analyser.fftSize;
   const K = calOffset;
 
-  const levels = bands.map(b => bandLevel(b, pw, binHz, scale, K));
-  draw(levels);
+  const bd = view === 'spec' ? specBands : octBands;
+  const levels = bd.map(b => bandLevel(b, pw, binHz, scale, K));
+  if (view === 'spec') drawLine(bd, levels); else drawBars(bd, levels);
   specRAF = requestAnimationFrame(drawSpectrum);
 }
 
 function drawGrid(){
-  const plotH = chh - AXIS;
-  ctx2d.font = '9px -apple-system, sans-serif';
-  ctx2d.lineWidth = 1;
+  ctx2d.font = '9px -apple-system, sans-serif'; ctx2d.lineWidth = 1;
   for (const g of [40, 60, 80, 100]){
     const y = yOf(g);
     ctx2d.strokeStyle = '#1c2230'; ctx2d.beginPath(); ctx2d.moveTo(0, y); ctx2d.lineTo(cw, y); ctx2d.stroke();
@@ -492,39 +643,81 @@ function drawGrid(){
   ctx2d.textAlign = 'left';
 }
 
-function draw(levels){
+function drawBars(bd, levels){
   if (!ctx2d) return;
   const plotH = chh - AXIS;
-  ctx2d.clearRect(0, 0, cw, chh);
-  drawGrid();
+  ctx2d.clearRect(0, 0, cw, chh); drawGrid();
+  for (let i = 0; i < bd.length; i++){
+    const L = levels[i]; if (L == null) continue;
+    let x0 = xOf(bd[i].lo), x1 = xOf(bd[i].hi);
+    if (x1 > cw) x1 = cw; if (x0 < 0) x0 = 0;
+    const y = yOf(L);
+    ctx2d.fillStyle = L >= 85 ? '#f85149' : L >= 70 ? '#d29922' : '#3fb950';
+    ctx2d.fillRect(x0 + 0.5, y, Math.max(1, x1 - x0 - 1), plotH - y);
+  }
+  ctx2d.fillStyle = '#c9d1d9'; ctx2d.font = '8px -apple-system, sans-serif'; ctx2d.textAlign = 'center';
+  for (let i = 0; i < bd.length; i++){
+    if (OCT1.indexOf(bd[i].fc) >= 0){ const x = (xOf(bd[i].lo) + xOf(bd[i].hi)) / 2; ctx2d.fillText(fmt(bd[i].fc), x, 9); }
+  }
+  ctx2d.textAlign = 'left';
+}
 
-  if (mode === 24){
-    // 連続: 折れ線 + 塗り
-    ctx2d.beginPath(); let started = false;
-    for (let i = 0; i < bands.length; i++){
-      const L = levels[i]; if (L == null) continue;
-      const x = xOf(bands[i].fc), y = yOf(L);
+function drawLine(bd, levels){
+  if (!ctx2d) return;
+  const plotH = chh - AXIS;
+  ctx2d.clearRect(0, 0, cw, chh); drawGrid();
+
+  // 現在スペクトル（線＋塗り）
+  ctx2d.beginPath(); let started = false, firstX = 0, lastX = 0;
+  for (let i = 0; i < bd.length; i++){
+    const L = levels[i]; if (L == null) continue;
+    const x = xOf(bd[i].fc), y = yOf(L);
+    if (!started){ ctx2d.moveTo(x, y); started = true; firstX = x; } else ctx2d.lineTo(x, y);
+    lastX = x;
+  }
+  if (started){
+    ctx2d.strokeStyle = '#3fb950'; ctx2d.lineWidth = 1.6; ctx2d.stroke();
+    ctx2d.lineTo(lastX, plotH); ctx2d.lineTo(firstX, plotH); ctx2d.closePath();
+    ctx2d.fillStyle = 'rgba(63,185,80,.13)'; ctx2d.fill();
+  }
+
+  // 平均トレース（パワー領域 running mean・紫）
+  if (showAvg){
+    if (!avgArr || avgArr.length !== bd.length){ avgArr = new Float64Array(bd.length); nAvg = 0; }
+    for (let i = 0; i < bd.length; i++){ const L = levels[i]; if (L == null) continue; const p = Math.pow(10, L / 10); avgArr[i] = (avgArr[i] * nAvg + p) / (nAvg + 1); }
+    nAvg++;
+    ctx2d.beginPath(); let st = false;
+    for (let i = 0; i < bd.length; i++){
+      if (!(avgArr[i] > 0)) continue;
+      const x = xOf(bd[i].fc), y = yOf(10 * Math.log10(avgArr[i]));
+      if (!st){ ctx2d.moveTo(x, y); st = true; } else ctx2d.lineTo(x, y);
+    }
+    ctx2d.strokeStyle = '#a371f7'; ctx2d.lineWidth = 1.2; ctx2d.stroke();
+  }
+
+  // ピークホールド
+  if (peakHold){
+    if (!peakArr || peakArr.length !== bd.length) peakArr = new Array(bd.length).fill(null);
+    for (let i = 0; i < bd.length; i++){ const L = levels[i]; if (L == null) continue; if (peakArr[i] == null || L > peakArr[i]) peakArr[i] = L; }
+    ctx2d.beginPath(); started = false;
+    for (let i = 0; i < bd.length; i++){
+      const P = peakArr[i]; if (P == null) continue;
+      const x = xOf(bd[i].fc), y = yOf(P);
       if (!started){ ctx2d.moveTo(x, y); started = true; } else ctx2d.lineTo(x, y);
     }
-    ctx2d.strokeStyle = '#3fb950'; ctx2d.lineWidth = 1.6; ctx2d.stroke();
-    ctx2d.lineTo(xOf(bands[bands.length - 1].fc), plotH); ctx2d.lineTo(xOf(bands[0].fc), plotH); ctx2d.closePath();
-    ctx2d.fillStyle = 'rgba(63,185,80,.15)'; ctx2d.fill();
-  } else {
-    // オクターブ: バー
-    for (let i = 0; i < bands.length; i++){
-      const L = levels[i]; if (L == null) continue;
-      let x0 = xOf(bands[i].lo), x1 = xOf(bands[i].hi);
-      if (x1 > cw) x1 = cw; if (x0 < 0) x0 = 0;
+    ctx2d.strokeStyle = '#d29922'; ctx2d.lineWidth = 1.2; ctx2d.stroke();
+  }
+
+  // タッチカーソル
+  if (cursorIdx != null && cursorIdx < bd.length){
+    const x = xOf(bd[cursorIdx].fc), L = levels[cursorIdx];
+    ctx2d.strokeStyle = '#58a6ff'; ctx2d.lineWidth = 1; ctx2d.setLineDash([4, 3]);
+    ctx2d.beginPath(); ctx2d.moveTo(x, 0); ctx2d.lineTo(x, plotH); ctx2d.stroke(); ctx2d.setLineDash([]);
+    if (L != null){
       const y = yOf(L);
-      ctx2d.fillStyle = L >= 85 ? '#f85149' : L >= 70 ? '#d29922' : '#3fb950';
-      ctx2d.fillRect(x0 + 0.5, y, Math.max(1, x1 - x0 - 1), plotH - y);
+      ctx2d.fillStyle = '#58a6ff'; ctx2d.beginPath(); ctx2d.arc(x, y, 3, 0, 7); ctx2d.fill();
     }
-    ctx2d.fillStyle = '#c9d1d9'; ctx2d.font = '8px -apple-system, sans-serif'; ctx2d.textAlign = 'center';
-    for (let i = 0; i < bands.length; i++){
-      const fc = bands[i].fc;
-      if (OCT1.indexOf(fc) >= 0){ const x = (xOf(bands[i].lo) + xOf(bands[i].hi)) / 2; ctx2d.fillText(fmt(fc), x, 9); }
-    }
-    ctx2d.textAlign = 'left';
+    $('cursorOut').textContent = 'f: ' + fmtFreq(bd[cursorIdx].fc) + '   L: ' + (L != null ? L.toFixed(1) : '--') + ' dB';
   }
 }
 
