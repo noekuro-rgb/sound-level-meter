@@ -1,137 +1,151 @@
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>簡易騒音計 (NA-28 機能パリティ版)</title>
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; }
   body {
-    margin: 0; font-family: -apple-system, system-ui, sans-serif;
-    background: #0d1117; color: #e6edf3;
-    padding: env(safe-area-inset-top) 14px calc(env(safe-area-inset-bottom) + 12px);
-    max-width: 480px; margin: 0 auto;
+    font-family: -apple-system, system-ui, sans-serif; background: #0d1117; color: #e6edf3;
+    overflow: hidden;
   }
-  h1 { font-size: 13px; font-weight: 600; text-align: center; color: #8b949e; margin: 12px 0 8px; }
-  .seg { display: flex; gap: 6px; }
-  .seg.full { width: 100%; }
-  .seg button { flex: 1; padding: 9px 0; font-size: 14px; font-weight: 600; border: none; border-radius: 9px; background: #21262d; color: #e6edf3; }
+  .app {
+    height: 100vh; height: 100dvh; max-width: 560px; margin: 0 auto;
+    display: flex; flex-direction: column; gap: 6px; overflow: hidden;
+    padding: calc(env(safe-area-inset-top) + 6px) 12px calc(env(safe-area-inset-bottom) + 8px);
+  }
+  .seg { display: flex; gap: 5px; }
+  .seg button { flex: 1; padding: 8px 0; font-size: 13px; font-weight: 600; border: none; border-radius: 8px; background: #21262d; color: #e6edf3; }
   .seg button.on { background: #1f6feb; }
-  .segrow { display: flex; gap: 10px; margin: 8px 0; }
-  .segrow > div { flex: 1; }
-  .segrow .lbl { font-size: 10px; color: #8b949e; text-align: center; margin-bottom: 4px; letter-spacing: .08em; }
-  .main { text-align: center; margin: 14px 0 8px; }
-  .lp-label { font-size: 13px; color: #58a6ff; font-weight: 600; letter-spacing: .05em; height: 16px; }
-  .level { font-size: 80px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
-  .unit { font-size: 20px; color: #8b949e; margin-left: 4px; }
-  .bar { width: 100%; height: 10px; background: #21262d; border-radius: 5px; overflow: hidden; margin: 10px 0 14px; }
-  .bar > div { height: 100%; width: 0%; background: linear-gradient(90deg,#3fb950,#d29922,#f85149); transition: width .1s linear; }
-  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-  .stat { background: #161b22; border: 1px solid #21262d; border-radius: 9px; padding: 8px 4px; text-align: center; }
-  .stat .k { font-size: 10px; color: #8b949e; }
-  .stat .v { font-size: 19px; font-weight: 600; font-variant-numeric: tabular-nums; }
-  .ln-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-top: 8px; }
-  .ln { background: #161b22; border: 1px solid #21262d; border-radius: 8px; padding: 6px 2px; text-align: center; }
+  .selectors { display: flex; gap: 10px; }
+  .selectors > div { flex: 1; }
+  .selectors .lbl { font-size: 9px; color: #8b949e; text-align: center; margin-bottom: 3px; letter-spacing: .08em; }
+
+  .readout { text-align: center; }
+  .lp-label { font-size: 12px; color: #58a6ff; font-weight: 600; height: 14px; }
+  .lp { line-height: 1; }
+  .lp .level { font-size: 58px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .lp .unit { font-size: 17px; color: #8b949e; margin-left: 3px; }
+  .ministats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 6px; }
+  .ministats .s { background: #161b22; border: 1px solid #21262d; border-radius: 8px; padding: 5px 2px; }
+  .ministats .k { font-size: 9px; color: #8b949e; }
+  .ministats .v { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  .graphhead { display: flex; align-items: center; gap: 10px; }
+  .graphhead .seg { flex: 1; }
+  .graphhead .status { font-size: 11px; color: #8b949e; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .graphhead .warn { color: #d29922; }
+
+  #specCanvas { flex: 1; width: 100%; min-height: 0; display: block; background: #0a0d12; border: 1px solid #21262d; border-radius: 10px; }
+
+  .controls { display: flex; gap: 8px; }
+  .controls button { padding: 13px; font-size: 15px; font-weight: 700; border: none; border-radius: 11px; color: #fff; }
+  .controls #startBtn { flex: 2; background: #238636; }
+  .controls #startBtn.running { background: #da3633; }
+  .controls #resetBtn { flex: 1; background: #6e7681; }
+  .controls #settingsBtn { flex: 1; background: #30363d; }
+
+  /* 設定シート */
+  .backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.5); opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 9; }
+  .backdrop.open { opacity: 1; pointer-events: auto; }
+  .sheet {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+    background: #161b22; border-top: 1px solid #30363d; border-radius: 16px 16px 0 0;
+    padding: 14px 16px calc(env(safe-area-inset-bottom) + 18px);
+    transform: translateY(100%); transition: transform .25s; max-height: 88vh; overflow-y: auto;
+    max-width: 560px; margin: 0 auto;
+  }
+  .sheet.open { transform: translateY(0); }
+  .sheet h2 { font-size: 13px; color: #8b949e; margin: 4px 0 8px; font-weight: 600; }
+  .sheet .row { display: flex; align-items: center; gap: 8px; }
+  .sheet input { flex: 1; background: #0d1117; border: 1px solid #30363d; color: #e6edf3; border-radius: 8px; padding: 10px; font-size: 16px; min-width: 0; }
+  .sheet .calbtn { flex: 0 0 auto; padding: 10px 12px; font-size: 14px; font-weight: 600; border: none; border-radius: 8px; background: #1f6feb; color: #fff; }
+  .ln-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin: 8px 0; }
+  .ln { background: #0d1117; border: 1px solid #21262d; border-radius: 8px; padding: 6px 2px; text-align: center; }
   .ln .k { font-size: 9px; color: #8b949e; }
   .ln .v { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
-  .spec { margin-top: 12px; background: #161b22; border: 1px solid #21262d; border-radius: 10px; padding: 10px; }
-  .spec-head { display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: #8b949e; margin-bottom: 8px; }
-  .spec-head .seg { width: auto; }
-  .spec-head .seg button { flex: 0 0 auto; padding: 6px 10px; font-size: 12px; }
-  #specCanvas { width: 100%; height: 170px; display: block; }
-  .meta { display: flex; justify-content: space-between; font-size: 11px; color: #8b949e; margin: 10px 2px 0; }
-  .controls { display: flex; gap: 10px; margin: 12px 0; }
-  .controls button { flex: 1; padding: 14px; font-size: 16px; font-weight: 700; border: none; border-radius: 12px; color: #fff; background: #238636; }
-  .controls button.running { background: #da3633; }
-  .controls button.sub { background: #6e7681; }
-  .cal { background: #161b22; border: 1px solid #21262d; border-radius: 10px; padding: 12px; }
-  .cal label { font-size: 12px; color: #8b949e; display: block; margin-bottom: 6px; }
-  .cal .row { display: flex; align-items: center; gap: 8px; }
-  .cal input { flex: 1; background: #0d1117; border: 1px solid #30363d; color: #e6edf3; border-radius: 8px; padding: 10px; font-size: 16px; min-width: 0; }
-  .cal .calbtn { flex: 0 0 auto; padding: 10px 12px; font-size: 14px; font-weight: 600; border: none; border-radius: 8px; background: #1f6feb; color: #fff; }
-  .note { font-size: 10px; color: #6e7681; line-height: 1.6; margin: 12px 2px 0; }
-  .warn { color: #d29922; }
+  .sheet .meta { display: flex; justify-content: space-between; font-size: 11px; color: #8b949e; margin: 8px 0; }
+  .note { font-size: 10px; color: #6e7681; line-height: 1.6; }
+  .note .warn { color: #d29922; }
+  .sheet .grab { width: 36px; height: 4px; background: #30363d; border-radius: 2px; margin: 0 auto 10px; }
 </style>
 
-<h1>簡易騒音計 — NA-28 機能パリティ版</h1>
-
-<div class="segrow">
-  <div>
-    <div class="lbl">周波数重み</div>
-    <div class="seg full" id="freqSeg">
-      <button data-w="A" class="on">A</button>
-      <button data-w="C">C</button>
-      <button data-w="Z">Z</button>
+<div class="app">
+  <div class="selectors">
+    <div>
+      <div class="lbl">周波数重み</div>
+      <div class="seg" id="freqSeg">
+        <button data-w="A" class="on">A</button><button data-w="C">C</button><button data-w="Z">Z</button>
+      </div>
+    </div>
+    <div>
+      <div class="lbl">時間重み</div>
+      <div class="seg" id="timeSeg">
+        <button data-t="F" class="on">Fast</button><button data-t="S">Slow</button><button data-t="I">Imp</button>
+      </div>
     </div>
   </div>
-  <div>
-    <div class="lbl">時間重み</div>
-    <div class="seg full" id="timeSeg">
-      <button data-t="F" class="on">Fast</button>
-      <button data-t="S">Slow</button>
-      <button data-t="I">Imp</button>
+
+  <div class="readout">
+    <div class="lp-label" id="lpLabel">L<sub>AF</sub></div>
+    <div class="lp"><span class="level" id="level">--.-</span><span class="unit">dB</span></div>
+    <div class="ministats">
+      <div class="s"><div class="k">Leq</div><div class="v" id="leq">--.-</div></div>
+      <div class="s"><div class="k">Lmax</div><div class="v" id="lmax">--.-</div></div>
+      <div class="s"><div class="k">Lmin</div><div class="v" id="lmin">--.-</div></div>
+      <div class="s"><div class="k">L<sub>peak</sub></div><div class="v" id="peak">--.-</div></div>
     </div>
   </div>
-</div>
 
-<div class="main">
-  <div class="lp-label" id="lpLabel">L<sub>AF</sub></div>
-  <div><span class="level" id="level">--.-</span><span class="unit">dB</span></div>
-</div>
-<div class="bar"><div id="barFill"></div></div>
-
-<div class="grid">
-  <div class="stat"><div class="k">Leq</div><div class="v" id="leq">--.-</div></div>
-  <div class="stat"><div class="k">LE (SEL)</div><div class="v" id="sel">--.-</div></div>
-  <div class="stat"><div class="k">L<sub>peak</sub></div><div class="v" id="peak">--.-</div></div>
-  <div class="stat"><div class="k">Lmax</div><div class="v" id="lmax">--.-</div></div>
-  <div class="stat"><div class="k">Lmin</div><div class="v" id="lmin">--.-</div></div>
-  <div class="stat"><div class="k">経過</div><div class="v" id="elapsed" style="font-size:15px">0:00</div></div>
-</div>
-
-<div class="ln-grid">
-  <div class="ln"><div class="k">L5</div><div class="v" id="l5">--</div></div>
-  <div class="ln"><div class="k">L10</div><div class="v" id="l10">--</div></div>
-  <div class="ln"><div class="k">L50</div><div class="v" id="l50">--</div></div>
-  <div class="ln"><div class="k">L90</div><div class="v" id="l90">--</div></div>
-  <div class="ln"><div class="k">L95</div><div class="v" id="l95">--</div></div>
-</div>
-
-<div class="spec">
-  <div class="spec-head">
-    <span>オクターブ スペクトル（Z/平坦・近似）</span>
-    <div class="seg" id="bwSeg">
-      <button data-bw="1" class="on">1/1 oct</button>
-      <button data-bw="3">1/3 oct</button>
+  <div class="graphhead">
+    <div class="seg" id="modeSeg">
+      <button data-bw="1" class="on">1/1 oct</button><button data-bw="3">1/3 oct</button><button data-bw="24">連続</button>
     </div>
+    <div class="status"><span id="elapsed">0:00</span> <span id="clipInfo"></span></div>
   </div>
+
   <canvas id="specCanvas"></canvas>
+
+  <div class="controls">
+    <button id="startBtn">測定開始</button>
+    <button id="resetBtn">リセット</button>
+    <button id="settingsBtn">⚙ 設定</button>
+  </div>
 </div>
 
-<div class="meta">
-  <span id="fsInfo">fs: --</span>
-  <span id="clipInfo"></span>
-</div>
-
-<div class="controls">
-  <button id="startBtn">測定開始</button>
-  <button id="resetBtn" class="sub">リセット</button>
-</div>
-
-<div class="cal">
-  <label>① 基準器 NA-28 の値に合わせて校正（同じ音を同時測定して押す）</label>
+<div class="backdrop" id="backdrop"></div>
+<div class="sheet" id="sheet">
+  <div class="grab"></div>
+  <h2>① 基準器 NA-28 に合わせて校正（同じ音を同時測定して押す）</h2>
   <div class="row">
     <input type="number" id="rionInput" placeholder="NA-28の表示値" step="0.1">
     <button id="calBtn" class="calbtn">この値に合わせる</button>
   </div>
-  <label style="margin-top:12px">校正オフセット K（手動調整可・自動保存）</label>
+  <h2 style="margin-top:12px">校正オフセット K（手動調整可・自動保存）</h2>
   <div class="row">
     <input type="number" id="calInput" value="100" step="0.1">
     <span style="color:#8b949e">dB</span>
   </div>
-</div>
 
-<div class="note">
-  Lp/Leq/Lmax/Lmin は時間重み付き、LN は慣例どおり <b>Fast</b> 固定で集計。Lpeak は時間重みなしの真のピーク（選択中の周波数重み）。<br>
-  <span class="warn">※ これは校正した NA-28 に合わせ込んだ相対指示値です。iPhone マイクは約120 dB で飽和・自己雑音 約30 dBA・周波数応答が非平坦なため、Class 1 精度や 25–140 dB の全域、静室測定は再現できません。業務・法的証拠には使用不可。</span>
+  <h2 style="margin-top:14px">時間率レベル LN（Fast集計）</h2>
+  <div class="ln-grid">
+    <div class="ln"><div class="k">L5</div><div class="v" id="l5">--</div></div>
+    <div class="ln"><div class="k">L10</div><div class="v" id="l10">--</div></div>
+    <div class="ln"><div class="k">L50</div><div class="v" id="l50">--</div></div>
+    <div class="ln"><div class="k">L90</div><div class="v" id="l90">--</div></div>
+    <div class="ln"><div class="k">L95</div><div class="v" id="l95">--</div></div>
+  </div>
+
+  <div class="meta">
+    <span>LE (SEL): <b id="sel">--.-</b> dB</span>
+    <span id="fsInfo">fs: --</span>
+  </div>
+
+  <div class="note">
+    Lp/Leq/Lmax/Lmin は時間重み付き、LN は慣例どおり Fast 固定で集計。Lpeak は時間重みなしの真のピーク。<br>
+    スペクトルは Z/平坦・定Q（分数オクターブ）。連続モードは 1/24 オクターブ平滑。<br>
+    <span class="warn">※ 校正した NA-28 に合わせ込んだ相対指示値です。iPhone マイクは約120 dB で飽和・自己雑音 約30 dBA・周波数応答が非平坦なため、Class 1 精度や全域・静室測定・各帯域の絶対精度は保証できません。業務・法的証拠には使用不可。</span>
+  </div>
 </div>
 
 <script>
@@ -164,31 +178,22 @@ const COEFFS = {
 };
 
 // ===== AudioWorklet プロセッサ（オーディオスレッド・ギャップなし）=====
-// 単一HTML維持のため Blob URL で addModule する。
 const WORKLET_CODE = `
-const HIST_MIN = -140;      // dBFS 下限
-const HIST_BINS = 1600;     // 0.1 dB 刻み（-140〜+20 dBFS）
+const HIST_MIN = -140;
+const HIST_BINS = 1600;
 class SLMProcessor extends AudioWorkletProcessor {
   constructor(opt) {
     super();
     const o = opt.processorOptions;
-    this.fs = o.fs;
-    this.tableA = o.tableA;     // [[b0,b1,b2,a1,a2], ...]
-    this.tableC = o.tableC;
-    this.sections = [];         // 現在の重み付けの係数（Z=空）
-    this.s1 = []; this.s2 = []; // 各セクションの状態
+    this.fs = o.fs; this.tableA = o.tableA; this.tableC = o.tableC;
+    this.sections = []; this.s1 = []; this.s2 = [];
     this.setWeighting('A');
-
-    this.tau = 0.125; this.impulse = false;
-    this.updateAlpha();
-    this.alphaFast = 1 - Math.exp(-1 / (this.fs * 0.125)); // LN用 Fast 固定
+    this.tau = 0.125; this.impulse = false; this.updateAlpha();
+    this.alphaFast = 1 - Math.exp(-1 / (this.fs * 0.125));
     this.alphaImpRise = 1 - Math.exp(-1 / (this.fs * 0.035));
     this.alphaImpDecay = 1 - Math.exp(-1 / (this.fs * 1.5));
-
     this.reset();
-    this.postSamples = Math.round(this.fs * 0.1); // 100ms ごとに送出
-    this.acc = 0;
-
+    this.postSamples = Math.round(this.fs * 0.1); this.acc = 0;
     this.port.onmessage = (e) => {
       const m = e.data;
       if (m.type === 'weighting') this.setWeighting(m.name);
@@ -211,8 +216,8 @@ class SLMProcessor extends AudioWorkletProcessor {
   filter(x){
     const sec = this.sections;
     for (let i=0;i<sec.length;i++){
-      const c = sec[i];                       // [b0,b1,b2,a1,a2]
-      const y = c[0]*x + this.s1[i];          // TDF-II 転置
+      const c = sec[i];
+      const y = c[0]*x + this.s1[i];
       this.s1[i] = c[1]*x - c[3]*y + this.s2[i];
       this.s2[i] = c[2]*x - c[4]*y;
       x = y;
@@ -222,25 +227,21 @@ class SLMProcessor extends AudioWorkletProcessor {
   process(inputs){
     const input = inputs[0];
     if (!input || !input.length) return true;
-    const ch = input[0];
-    const N = ch.length;
+    const ch = input[0]; const N = ch.length;
     for (let n=0;n<N;n++){
-      const y = this.filter(ch[n]);           // 周波数重み後
+      const y = this.filter(ch[n]);
       const p = y*y;
       this.energySum += p; this.nSamples++;
       const ay = y < 0 ? -y : y;
       if (ay > this.peakAbs) this.peakAbs = ay;
-      // 表示用 時間重み（F/S 対称 or Impulse 非対称）
       if (this.impulse) {
         const a = p >= this.msSmooth ? this.alphaImpRise : this.alphaImpDecay;
         this.msSmooth += a * (p - this.msSmooth);
       } else {
         this.msSmooth += this.alpha * (p - this.msSmooth);
       }
-      // LN用 Fast 固定
       this.msFast += this.alphaFast * (p - this.msFast);
       this.total++;
-      // ヒストグラム（1秒ウォームアップ後）
       if (this.total > this.fs) {
         const lp = 10 * Math.log10(this.msFast + 1e-20);
         let idx = Math.round((lp - HIST_MIN) * 10);
@@ -252,11 +253,8 @@ class SLMProcessor extends AudioWorkletProcessor {
     if (this.acc >= this.postSamples) {
       this.acc = 0;
       this.port.postMessage({
-        msSmooth: this.msSmooth,
-        energySum: this.energySum,
-        nSamples: this.nSamples,
-        peakAbs: this.peakAbs,
-        hist: this.hist.slice(),
+        msSmooth: this.msSmooth, energySum: this.energySum,
+        nSamples: this.nSamples, peakAbs: this.peakAbs, hist: this.hist.slice(),
       });
     }
     return true;
@@ -265,9 +263,9 @@ class SLMProcessor extends AudioWorkletProcessor {
 registerProcessor('slm-processor', SLMProcessor);
 `;
 
-// ===== メインスレッド =====
+// ===== メインスレッド 状態 =====
 let audioCtx, micStream, node, muteGain;
-let analyser, freqData, timeData, specRAF;   // スペクトル用
+let analyser, freqData, timeData, specRAF;
 let ctx2d, cw = 0, chh = 0, bands;
 let running = false;
 let calOffset = 100;
@@ -289,6 +287,11 @@ $('calBtn').addEventListener('click', () => {
   if (!isFinite(r)) { alert('NA-28 の表示値を入力してください。'); return; }
   setOffset(r - lastRawLp);
 });
+
+// 設定シート
+function openSheet(o){ $('sheet').classList.toggle('open', o); $('backdrop').classList.toggle('open', o); }
+$('settingsBtn').addEventListener('click', () => openSheet(true));
+$('backdrop').addEventListener('click', () => openSheet(false));
 
 function updateLpLabel(){ $('lpLabel').innerHTML = 'L<sub>' + weighting + timeMode + '</sub>'; }
 $('freqSeg').addEventListener('click', e => {
@@ -319,12 +322,7 @@ async function start(){
   await audioCtx.resume();
   const fs = audioCtx.sampleRate;
   $('fsInfo').textContent = 'fs: ' + fs + ' Hz';
-
-  // 係数テーブル選択（48k/44.1k 以外は 48k で代用し警告）
   let key = fs === 44100 ? 44100 : 48000;
-  if (fs !== 48000 && fs !== 44100) {
-    $('clipInfo').innerHTML = '<span class="warn">⚠ 非対応fs, 48k係数で代用</span>';
-  }
 
   await audioCtx.audioWorklet.addModule(URL.createObjectURL(
     new Blob([WORKLET_CODE], { type: 'application/javascript' })
@@ -335,8 +333,6 @@ async function start(){
   node.port.onmessage = e => onMetrics(e.data);
 
   const src = audioCtx.createMediaStreamSource(micStream);
-
-  // スペクトル用 AnalyserNode（生＝平坦信号をタップ。表示専用なので AnalyserNode で可）
   analyser = audioCtx.createAnalyser();
   analyser.fftSize = 16384;
   analyser.smoothingTimeConstant = 0.8;
@@ -344,10 +340,9 @@ async function start(){
   timeData = new Float32Array(analyser.fftSize);
   src.connect(analyser);
 
-  muteGain = audioCtx.createGain(); muteGain.gain.value = 0;  // 無音シンク（フィードバック防止）
+  muteGain = audioCtx.createGain(); muteGain.gain.value = 0;
   src.connect(node); node.connect(muteGain); muteGain.connect(audioCtx.destination);
 
-  // 現在のUI設定を反映
   node.port.postMessage({ type: 'weighting', name: weighting });
   node.port.postMessage({ type: 'time', tau: timeMode === 'S' ? 1.0 : 0.125, impulse: timeMode === 'I' });
 
@@ -379,33 +374,22 @@ function lnFromHist(hist, N){
   if (!total) return null;
   const target = total * N / 100;
   let cum = 0;
-  for (let i = hist.length - 1; i >= 0; i--) {   // 大→小
-    cum += hist[i];
-    if (cum >= target) return HIST_MIN + i * 0.1;
-  }
+  for (let i = hist.length - 1; i >= 0; i--) { cum += hist[i]; if (cum >= target) return HIST_MIN + i * 0.1; }
   return HIST_MIN;
 }
 
 function onMetrics(m){
   const K = calOffset;
-  // Lp（時間重み付き）
   const rawLp = 10 * Math.log10(m.msSmooth + 1e-20);
   lastRawLp = rawLp;
   const lp = rawLp + K;
   $('level').textContent = lp.toFixed(1);
-  $('barFill').style.width = Math.max(0, Math.min(100, lp / 1.2)) + '%';
-
-  // Leq / SEL（worklet エネルギー積算）
   const leq = 10 * Math.log10(m.energySum / m.nSamples + 1e-20) + K;
   const sel = 10 * Math.log10(m.energySum / audioCtx.sampleRate + 1e-20) + K;
   $('leq').textContent = leq.toFixed(1);
   $('sel').textContent = sel.toFixed(1);
+  $('peak').textContent = (20 * Math.log10(m.peakAbs + 1e-20) + K).toFixed(1);
 
-  // Lpeak（時間重みなし真のピーク）
-  const peak = 20 * Math.log10(m.peakAbs + 1e-20) + K;
-  $('peak').textContent = peak.toFixed(1);
-
-  // Lmax/Lmin（1秒ウォームアップ後）
   const elapsed = (performance.now() - startTime) / 1000;
   if (elapsed > 1) {
     if (lp > lmax) { lmax = lp; $('lmax').textContent = lp.toFixed(1); }
@@ -414,95 +398,133 @@ function onMetrics(m){
   const mm = Math.floor(elapsed / 60), ss = Math.floor(elapsed % 60);
   $('elapsed').textContent = mm + ':' + String(ss).padStart(2, '0');
 
-  // LN（Fast集計のヒストグラムから）
   [['l5',5],['l10',10],['l50',50],['l90',90],['l95',95]].forEach(([id,n]) => {
     const v = lnFromHist(m.hist, n);
     if (v !== null) $(id).textContent = (v + K).toFixed(1);
   });
-
-  // クリップ警告
-  if (m.peakAbs >= 0.985) $('clipInfo').innerHTML = '<span class="warn">⚠ クリップ（過大入力）</span>';
+  if (m.peakAbs >= 0.985) $('clipInfo').innerHTML = '<span class="warn">⚠クリップ</span>';
 }
 
-// ===== オクターブ スペクトル =====
-const OCT1 = [31.5, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
-const OCT3 = [25, 31.5, 40, 50, 63, 80, 100, 125, 160, 200, 250, 315, 400, 500, 630,
+// ===== スペクトル（対数軸・定Q 分数オクターブ）=====
+const FMIN = 20, FMAX = 20000;
+const LGMIN = Math.log10(FMIN), LGSPAN = Math.log10(FMAX) - LGMIN;
+const OCT1 = [16, 31.5, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
+const OCT3 = [20, 25, 31.5, 40, 50, 63, 80, 100, 125, 160, 200, 250, 315, 400, 500, 630,
               800, 1000, 1250, 1600, 2000, 2500, 3150, 4000, 5000, 6300, 8000, 10000, 12500, 16000, 20000];
+const XLABELS = [20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000];
 function fmt(fc){ return fc >= 1000 ? (fc / 1000) + 'k' : '' + fc; }
-function makeBands(bw){
-  const centers = bw === 1 ? OCT1 : OCT3;
-  const ratio = bw === 1 ? Math.SQRT2 : Math.pow(2, 1 / 6);   // 帯域端＝中心×/÷ ratio
-  return centers.map(fc => ({ fc, lo: fc / ratio, hi: fc * ratio, label: fmt(fc) }));
+function xOf(f){ return (Math.log10(f) - LGMIN) / LGSPAN * cw; }
+
+function makeBands(frac){
+  let centers;
+  if (frac === 1) centers = OCT1;
+  else if (frac === 3) centers = OCT3;
+  else {                                   // 連続: 1/24 oct を計算生成
+    centers = []; const step = Math.pow(2, 1 / 24);
+    for (let f = 1000; f >= FMIN; f /= step) centers.unshift(f);
+    for (let f = 1000 * step; f <= FMAX; f *= step) centers.push(f);
+  }
+  const r = Math.pow(2, 1 / (2 * frac));   // 帯域端比
+  return centers.map(fc => ({ fc, lo: fc / r, hi: fc * r, label: frac === 24 ? null : fmt(fc) }));
 }
 bands = makeBands(1);
-
-$('bwSeg').addEventListener('click', e => {
+let mode = 1;
+$('modeSeg').addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
   [...e.currentTarget.children].forEach(x => x.classList.remove('on')); b.classList.add('on');
-  bands = makeBands(parseInt(b.dataset.bw, 10));
+  mode = parseInt(b.dataset.bw, 10); bands = makeBands(mode);
 });
 
 function setupCanvas(){
   const c = $('specCanvas');
   const dpr = window.devicePixelRatio || 1;
-  cw = c.clientWidth; chh = 170;
-  c.width = cw * dpr; c.height = chh * dpr;
+  cw = c.clientWidth; chh = c.clientHeight;
+  c.width = Math.round(cw * dpr); c.height = Math.round(chh * dpr);
   ctx2d = c.getContext('2d');
   ctx2d.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
 window.addEventListener('resize', () => { if (running) setupCanvas(); });
 
-const DBMIN = 20, DBMAX = 110, AXIS = 16;   // 下16pxはラベル域
+const DBMIN = 20, DBMAX = 110, AXIS = 14;
+function yOf(L){ const plotH = chh - AXIS; return plotH - Math.max(0, Math.min(1, (L - DBMIN) / (DBMAX - DBMIN))) * plotH; }
+
+function bandLevel(b, pw, binHz, scale, K){
+  let i0 = Math.floor(b.lo / binHz), i1 = Math.ceil(b.hi / binHz);
+  if (i0 < 1) i0 = 1;
+  if (i1 < i0) i1 = i0;                       // 低域でビンが無い時は最近傍1本
+  if (i1 > pw.length - 1) i1 = pw.length - 1;
+  let P = 0; for (let i = i0; i <= i1; i++) P += pw[i];
+  return P > 0 ? 10 * Math.log10(P) + scale + K : null;
+}
+
 function drawSpectrum(){
   if (!running || !analyser) return;
-  analyser.getFloatFrequencyData(freqData);     // 各ビン dB
+  analyser.getFloatFrequencyData(freqData);
   analyser.getFloatTimeDomainData(timeData);
 
-  // 広帯域 RMS（時間領域・平坦）
   let ms = 0; for (let i = 0; i < timeData.length; i++) ms += timeData[i] * timeData[i];
   ms /= timeData.length;
   const rawBB = 10 * Math.log10(ms + 1e-20);
 
-  // FFT 全パワーとスケール（バンド総和を広帯域に一致させる）
   let Ptot = 0;
   const pw = new Float64Array(freqData.length);
   for (let i = 0; i < freqData.length; i++){ const p = Math.pow(10, freqData[i] / 10); pw[i] = p; Ptot += p; }
   const scale = rawBB - 10 * Math.log10(Ptot + 1e-20);
   const binHz = audioCtx.sampleRate / analyser.fftSize;
+  const K = calOffset;
 
-  const levels = bands.map(b => {
-    const i0 = Math.max(1, Math.floor(b.lo / binHz));
-    const i1 = Math.min(pw.length - 1, Math.ceil(b.hi / binHz));
-    let P = 0; for (let i = i0; i <= i1; i++) P += pw[i];
-    return P > 0 ? 10 * Math.log10(P) + scale + calOffset : null;
-  });
-  drawBars(levels);
+  const levels = bands.map(b => bandLevel(b, pw, binHz, scale, K));
+  draw(levels);
   specRAF = requestAnimationFrame(drawSpectrum);
 }
 
-function drawBars(levels){
+function drawGrid(){
+  const plotH = chh - AXIS;
+  ctx2d.font = '9px -apple-system, sans-serif';
+  ctx2d.lineWidth = 1;
+  for (const g of [40, 60, 80, 100]){
+    const y = yOf(g);
+    ctx2d.strokeStyle = '#1c2230'; ctx2d.beginPath(); ctx2d.moveTo(0, y); ctx2d.lineTo(cw, y); ctx2d.stroke();
+    ctx2d.fillStyle = '#6e7681'; ctx2d.fillText(g, 2, y - 1);
+  }
+  ctx2d.fillStyle = '#8b949e'; ctx2d.textAlign = 'center';
+  for (const f of XLABELS){ const x = xOf(f); ctx2d.fillText(fmt(f), Math.max(8, Math.min(cw - 8, x)), chh - 3); }
+  ctx2d.textAlign = 'left';
+}
+
+function draw(levels){
   if (!ctx2d) return;
   const plotH = chh - AXIS;
   ctx2d.clearRect(0, 0, cw, chh);
-  // Y グリッド
-  ctx2d.font = '9px -apple-system, sans-serif';
-  for (const g of [40, 60, 80, 100]){
-    const y = plotH - (g - DBMIN) / (DBMAX - DBMIN) * plotH;
-    ctx2d.strokeStyle = '#21262d'; ctx2d.beginPath(); ctx2d.moveTo(0, y); ctx2d.lineTo(cw, y); ctx2d.stroke();
-    ctx2d.fillStyle = '#6e7681'; ctx2d.fillText(g, 1, y - 1);
-  }
-  const n = bands.length, bw = cw / n;
-  for (let i = 0; i < n; i++){
-    const L = levels[i]; if (L == null) continue;
-    const f = Math.max(0, Math.min(1, (L - DBMIN) / (DBMAX - DBMIN)));
-    const h = f * plotH;
-    ctx2d.fillStyle = L >= 85 ? '#f85149' : L >= 70 ? '#d29922' : '#3fb950';
-    ctx2d.fillRect(i * bw + 1, plotH - h, Math.max(1, bw - 2), h);
-  }
-  // X ラベル（1/1中心のみ）
-  ctx2d.fillStyle = '#8b949e';
-  for (let i = 0; i < n; i++){
-    if (OCT1.indexOf(bands[i].fc) >= 0) ctx2d.fillText(bands[i].label, i * bw + 1, chh - 4);
+  drawGrid();
+
+  if (mode === 24){
+    // 連続: 折れ線 + 塗り
+    ctx2d.beginPath(); let started = false;
+    for (let i = 0; i < bands.length; i++){
+      const L = levels[i]; if (L == null) continue;
+      const x = xOf(bands[i].fc), y = yOf(L);
+      if (!started){ ctx2d.moveTo(x, y); started = true; } else ctx2d.lineTo(x, y);
+    }
+    ctx2d.strokeStyle = '#3fb950'; ctx2d.lineWidth = 1.6; ctx2d.stroke();
+    ctx2d.lineTo(xOf(bands[bands.length - 1].fc), plotH); ctx2d.lineTo(xOf(bands[0].fc), plotH); ctx2d.closePath();
+    ctx2d.fillStyle = 'rgba(63,185,80,.15)'; ctx2d.fill();
+  } else {
+    // オクターブ: バー
+    for (let i = 0; i < bands.length; i++){
+      const L = levels[i]; if (L == null) continue;
+      let x0 = xOf(bands[i].lo), x1 = xOf(bands[i].hi);
+      if (x1 > cw) x1 = cw; if (x0 < 0) x0 = 0;
+      const y = yOf(L);
+      ctx2d.fillStyle = L >= 85 ? '#f85149' : L >= 70 ? '#d29922' : '#3fb950';
+      ctx2d.fillRect(x0 + 0.5, y, Math.max(1, x1 - x0 - 1), plotH - y);
+    }
+    ctx2d.fillStyle = '#c9d1d9'; ctx2d.font = '8px -apple-system, sans-serif'; ctx2d.textAlign = 'center';
+    for (let i = 0; i < bands.length; i++){
+      const fc = bands[i].fc;
+      if (OCT1.indexOf(fc) >= 0){ const x = (xOf(bands[i].lo) + xOf(bands[i].hi)) / 2; ctx2d.fillText(fmt(fc), x, 9); }
+    }
+    ctx2d.textAlign = 'left';
   }
 }
 
